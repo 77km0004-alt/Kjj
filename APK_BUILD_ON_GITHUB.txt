@@ -1,0 +1,53 @@
+[모바일 GitHub APK 빌드용]
+
+이 파일의 내용은 GitHub 저장소에서 Actions 워크플로를 직접 만들 때 사용합니다.
+
+1. GitHub 저장소에서 Actions를 누릅니다.
+2. New workflow / set up a workflow yourself 를 선택합니다.
+3. 파일 이름을 android-apk.yml 로 지정합니다.
+4. 아래 내용을 전부 붙여넣고 Commit changes 합니다.
+
+--- START ---
+name: Build Android APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build web app
+        run: npm run build
+
+      - name: Add Android platform
+        run: npx cap add android
+
+      - name: Sync Capacitor
+        run: npx cap sync android
+
+      - name: Build APK
+        working-directory: android
+        run: ./gradlew assembleDebug
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: vela-chat-debug-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+--- END ---
