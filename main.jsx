@@ -1,11 +1,629 @@
-import React,{useEffect,useMemo,useRef,useState}from'react';import{createRoot}from'react-dom/client';import{ArrowLeft,ChevronDown,ChevronRight,Database,Edit3,FileText,History,Menu,MessageCircle,Plus,Save,Send,Settings,SlidersHorizontal,Sparkles,Trash2,User,X,Zap,Gauge}from'lucide-react';import'./style.css';
-const uid=()=>crypto.randomUUID?.()||Math.random().toString(36).slice(2);const KEY='vela-v3';
-const defaults={character:{name:'만용',description:'캐릭터와 대화를 시작하세요.',systemPrompt:'당신은 사용자가 설정한 캐릭터입니다. 캐릭터의 성격과 설정을 유지하며 자연스럽게 대화하세요.',userNote:'',rules:'',guide:'',profile:''},settings:{baseUrl:'https://openrouter.ai/api/v1',apiKey:'',model:'openrouter/free',temperature:.8,maxTokens:800,reasoning:0,summaryEvery:10,memory:[]},messages:[]};
-function load(){try{return{...defaults,...JSON.parse(localStorage.getItem(KEY)||'{}')}}catch{return defaults}}function Modal({title,onClose,children}){return <div className="backdrop" onMouseDown={e=>e.target===e.currentTarget&&onClose()}><section className="modal"><header><div><small>VELA / SETTINGS</small><h2>{title}</h2></div><button className="ico" onClick={onClose}><X/></button></header>{children}</section></div>}
-function Field({label,value,onChange,area=false,placeholder=''}){return <label className="field"><span>{label}</span>{area?<textarea value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder}/>:<input value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder}/>}</label>}
-function App(){const[d,setD]=useState(load);const[page,setPage]=useState('chat');const[drawer,setDrawer]=useState(false);const[modelOpen,setModelOpen]=useState(false);const[modal,setModal]=useState(null);const[input,setInput]=useState('');const[busy,setBusy]=useState(false);const[notice,setNotice]=useState('');const end=useRef();useEffect(()=>localStorage.setItem(KEY,JSON.stringify(d)),[d]);useEffect(()=>end.current?.scrollIntoView({behavior:'smooth'}),[d.messages.length,busy]);const{character:c,settings:s,messages}=d;const update=(key,val)=>setD(x=>({...x,[key]:val}));const updateC=(key,val)=>setD(x=>({...x,character:{...x.character,[key]:val}}));const prompt=useMemo(()=>[c.systemPrompt,c.guide&&`[플레이 가이드]\n${c.guide}`,c.profile&&`[대화 프로필]\n${c.profile}`,c.userNote&&`[USER 설정]\n${c.userNote}`,c.rules&&`[추가 규칙]\n${c.rules}`,s.memory.length&&`[요약 메모리]\n${s.memory.join('\n')}`].filter(Boolean).join('\n\n'),[c,s.memory]);
-async function summarize(all){if(!s.apiKey)return;const transcript=all.slice(-40).map(x=>`${x.role==='user'?'USER':'AI'}: ${x.content}`).join('\n');try{const r=await fetch(`${s.baseUrl}/chat/completions`,{method:'POST',headers:{'Content-Type':'application/json',Authorization:`Bearer ${s.apiKey}`},body:JSON.stringify({model:s.model,messages:[{role:'system',content:'대화를 장기 기억용으로 요약하세요. 중요한 사실, 관계, 선호, 진행 중인 사건만 기록하고 새로운 내용을 만들지 마세요.'},{role:'user',content:transcript}],temperature:.2,max_tokens:300})});const j=await r.json();const m=j?.choices?.[0]?.message?.content?.trim();if(m)setD(x=>({...x,settings:{...x.settings,memory:[...x.settings.memory.slice(-7),m]}}))}catch{} }
-async function send(){const text=input.trim();if(!text||busy)return;const user={id:uid(),role:'user',content:text};const next=[...messages,user];setD(x=>({...x,messages:next}));setInput('');setBusy(true);setNotice('');try{if(!s.apiKey)throw Error('OpenRouter API Key를 설정해 주세요.');const r=await fetch(`${s.baseUrl.replace(/\/$/,'')}/chat/completions`,{method:'POST',headers:{'Content-Type':'application/json',Authorization:`Bearer ${s.apiKey}`,'X-Title':'Vela Chat'},body:JSON.stringify({model:s.model||'openrouter/free',messages:[{role:'system',content:prompt},...next.slice(-30).map(x=>({role:x.role,content:x.content}))],temperature:Number(s.temperature),max_tokens:Number(s.maxTokens),...(Number(s.reasoning)>0?{reasoning:{max_tokens:Number(s.reasoning)}}:{})})});const raw=await r.text();let j={};try{j=JSON.parse(raw)}catch{}if(!r.ok)throw Error(j?.error?.message||`API 오류 ${r.status}`);const answer=j?.choices?.[0]?.message?.content;if(!answer)throw Error('모델 응답이 비어 있습니다.');const all=[...next,{id:uid(),role:'assistant',content:answer}];setD(x=>({...x,messages:all}));const turns=all.filter(x=>x.role==='user').length;if(turns>0&&turns%Number(s.summaryEvery)===0)await summarize(all)}catch(e){setNotice(e.message||'채팅 요청에 실패했습니다.')}finally{setBusy(false)}}
-if(page==='creator')return <Creator c={c} updateC={updateC} back={()=>setPage('chat')}/>;return <div className="app"><header className="top"><button className="ico" onClick={()=>setDrawer(true)}><Menu/></button><b>VELA</b><div className="topright"><button className="model" onClick={()=>setModelOpen(!modelOpen)}><Sparkles/> {s.model==='openrouter/free'?'무료 모델':s.model}<ChevronDown/></button><button className="ico" onClick={()=>setModal('settings')}><Settings/></button></div></header>{modelOpen&&<div className="modelmenu"><button onClick={()=>{update('settings',{...s,model:'openrouter/free'});setModelOpen(false)}}><Sparkles/><span><b>OpenRouter 무료</b><small>무료 라우터</small></span></button><button onClick={()=>{setModal('model');setModelOpen(false)}}><SlidersHorizontal/><span><b>모델 / API</b><small>연결 설정</small></span></button></div>}<main className="chat"><div className="charbar"><div className="avatar"><MessageCircle/></div><div><b>{c.name}</b><small>{c.description}</small></div><button className="ico" onClick={()=>setPage('creator')}><Edit3/></button></div><div className="messages">{!messages.length&&<div className="welcome"><small>CHAT SESSION</small><h1>접속<br/>시작</h1><p>{c.description}</p></div>}{messages.map(m=><div className={'msg '+m.role} key={m.id}><small>{m.role==='user'?'YOU':c.name}</small><div>{m.content}</div></div>)}{busy&&<div className="msg assistant"><small>{c.name}</small><div className="dots">● ● ●</div></div>}<div ref={end}/></div>{notice&&<div className="notice">{notice}<button onClick={()=>setNotice('')}><X/></button></div>}<div className="composer"><textarea value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send()}}} placeholder="메시지 보내기"/><div><span><button onClick={()=>setModal('memory')}><Database/></button><button onClick={()=>setModal('rules')}><FileText/></button></span><button className="send" disabled={!input.trim()||busy} onClick={send}><Send/></button></div></div></main><nav className="bottom"><button className="active"><MessageCircle/><span>채팅</span></button><button onClick={()=>setPage('creator')}><Plus/><span>캐릭터</span></button><button onClick={()=>setModal('settings')}><Settings/><span>설정</span></button></nav>{drawer&&<div className="backdrop" onClick={()=>setDrawer(false)}><aside className="drawer" onClick={e=>e.stopPropagation()}><header><b>채팅 메뉴</b><button className="ico" onClick={()=>setDrawer(false)}><X/></button></header><button onClick={()=>setPage('creator')}><Edit3/>캐릭터 제작<ChevronRight/></button><button onClick={()=>setModal('user')}><User/>유저노트<ChevronRight/></button><button onClick={()=>setModal('rules')}><FileText/>추가 규칙<ChevronRight/></button><button onClick={()=>setModal('tokens')}><Gauge/>출력 토큰<ChevronRight/></button><button onClick={()=>setModal('reasoning')}><Zap/>추론량<ChevronRight/></button><button onClick={()=>setModal('memory')}><Database/>요약 메모리<ChevronRight/></button><hr/><button className="danger" onClick={()=>{setD(x=>({...x,messages:[]}));setDrawer(false)}}><Trash2/>현재 세션 초기화</button></aside></div>}{modal==='settings'&&<Modal title="채팅 설정" onClose={()=>setModal(null)}><div className="cards"><Card icon={<User/>} title="유저노트" desc="{user} 설정을 AI에게 전달" onClick={()=>setModal('user')}/><Card icon={<FileText/>} title="추가 규칙" desc="AI가 지킬 추가 지침" onClick={()=>setModal('rules')}/><Card icon={<Gauge/>} title="출력 토큰" desc={`${s.maxTokens} tokens`} onClick={()=>setModal('tokens')}/><Card icon={<Zap/>} title="추론량" desc={`${s.reasoning} tokens`} onClick={()=>setModal('reasoning')}/><Card icon={<Database/>} title="요약 메모리" desc={`${s.summaryEvery}턴마다 자동 저장`} onClick={()=>setModal('memory')}/><Card icon={<SlidersHorizontal/>} title="모델 / API" desc={s.model} onClick={()=>setModal('model')}/></div></Modal>}{modal==='user'&&<Modal title="유저노트" onClose={()=>setModal('settings')}><Field label="{user} 설정" value={c.userNote} onChange={v=>updateC('userNote',v)} area placeholder="AI가 알아야 할 사용자의 설정"/></Modal>}{modal==='rules'&&<Modal title="추가 규칙" onClose={()=>setModal('settings')}><Field label="AI 추가 규칙" value={c.rules} onChange={v=>updateC('rules',v)} area placeholder="대화에서 지켜야 할 추가 규칙"/></Modal>}{modal==='tokens'&&<Number title="최대 출력 토큰" value={s.maxTokens} min={128} max={8192} step={128} set={v=>update('settings',{...s,maxTokens:v})} close={()=>setModal('settings')}/>} {modal==='reasoning'&&<Number title="추론량" value={s.reasoning} min={0} max={8192} step={128} set={v=>update('settings',{...s,reasoning:v})} close={()=>setModal('settings')}/>} {modal==='model'&&<Modal title="모델 / API" onClose={()=>setModal('settings')}><Field label="API Base URL" value={s.baseUrl} onChange={v=>update('settings',{...s,baseUrl:v})}/><Field label="API Key" value={s.apiKey} onChange={v=>update('settings',{...s,apiKey:v})} placeholder="sk-or-v1-..."/><Field label="Model" value={s.model} onChange={v=>update('settings',{...s,model:v})}/><Field label="Temperature" value={s.temperature} onChange={v=>update('settings',{...s,temperature:Number(v)||0})}/></Modal>}{modal==='memory'&&<Memory s={s} update={x=>update('settings',x)} close={()=>setModal('settings')}/>}</div>}
-function Card({icon,title,desc,onClick}){return <button className="card" onClick={onClick}><i>{icon}</i><span><b>{title}</b><small>{desc}</small></span><ChevronRight/></button>};function Number({title,value,min,max,step,set,close}){return <Modal title={title} onClose={close}><div className="number">{value}</div><input type="range" min={min} max={max} step={step} value={value} onChange={e=>set(Number(e.target.value))}/><button className="primary" onClick={close}><Save/>적용</button></Modal>};function Memory({s,update,close}){return <Modal title="요약 메모리" onClose={close}><p className="help">대화가 설정한 턴 수에 도달하면 AI가 최근 대화를 분석해 장기 기억으로 저장합니다.</p><div className="segments">{[10,15,20].map(n=><button className={s.summaryEvery===n?'sel':''} onClick={()=>update({...s,summaryEvery:n})}>{n}턴</button>)}</div><div className="memlist">{s.memory.map((m,i)=><div key={i}><small>{i+1}</small><p>{m}</p><button onClick={()=>update({...s,memory:s.memory.filter((_,j)=>j!==i)})}><Trash2/></button></div>)}</div></Modal>};function Creator({c,updateC,back}){const[d,setD]=useState(c);return <div className="creator"><header className="top"><button className="ico" onClick={back}><ArrowLeft/></button><b>CHARACTER</b><button className="save" onClick={()=>{Object.entries(d).forEach(([k,v])=>updateC(k,v));back()}}><Save/>저장</button></header><main><div className="creator-title"><div className="avatar big"><MessageCircle/></div><div><small>CHARACTER PROFILE</small><h1>캐릭터 제작</h1><p>채팅 화면과 분리된 전용 제작 공간</p></div></div><div className="form"><Field label="캐릭터 이름" value={d.name} onChange={v=>setD({...d,name:v})}/><Field label="한줄 설명" value={d.description} onChange={v=>setD({...d,description:v})}/><Field label="시스템 프롬프트" value={d.systemPrompt} onChange={v=>setD({...d,systemPrompt:v})} area/><Field label="플레이 가이드" value={d.guide} onChange={v=>setD({...d,guide:v})} area/><Field label="대화 프로필" value={d.profile} onChange={v=>setD({...d,profile:v})} area/><Field label="{user} 유저노트" value={d.userNote} onChange={v=>setD({...d,userNote:v})} area/><Field label="추가 규칙" value={d.rules} onChange={v=>setD({...d,rules:v})} area/></div></main></div>}
-createRoot(document.getElementById('root')).render(<App/>);
+import React, { useEffect, useState } from "react";
+import { createRoot } from "react-dom/client";
+import "./style.css";
+
+const STORAGE_KEY = "vela-chat";
+
+const DEFAULT_DB = {
+  characters: [],
+  selectedCharacter: null,
+  apiKey: "",
+  model: "openrouter/free",
+};
+
+const DEFAULT_CHARACTER = {
+  id: "",
+  name: "새 캐릭터",
+  description: "",
+  userNote: "",
+  rules: "",
+  maxTokens: 700,
+  reasoning: 0,
+  temperature: 0.8,
+  summaryInterval: 10,
+  summary: "",
+};
+
+function loadDB() {
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    return saved ? JSON.parse(saved) : DEFAULT_DB;
+  } catch {
+    return DEFAULT_DB;
+  }
+}
+
+function App() {
+  const [db, setDB] = useState(loadDB);
+  const [screen, setScreen] = useState("home");
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [draft, setDraft] = useState(DEFAULT_CHARACTER);
+  const [messages, setMessages] = useState([]);
+  const [input, setInput] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const character = db.characters.find(
+    (item) => item.id === db.selectedCharacter
+  );
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(db));
+  }, [db]);
+
+  function createCharacter() {
+    setDraft({
+      ...DEFAULT_CHARACTER,
+      id: crypto.randomUUID(),
+    });
+    setScreen("create");
+    setMenuOpen(false);
+  }
+
+  function editCharacter() {
+    if (!character) return;
+
+    setDraft({
+      ...DEFAULT_CHARACTER,
+      ...character,
+    });
+
+    setScreen("create");
+    setMenuOpen(false);
+  }
+
+  function saveCharacter() {
+    const nextCharacter = {
+      ...draft,
+      name: draft.name.trim() || "새 캐릭터",
+    };
+
+    setDB((old) => {
+      const exists = old.characters.some(
+        (item) => item.id === nextCharacter.id
+      );
+
+      return {
+        ...old,
+        characters: exists
+          ? old.characters.map((item) =>
+              item.id === nextCharacter.id ? nextCharacter : item
+            )
+          : [...old.characters, nextCharacter],
+        selectedCharacter: nextCharacter.id,
+      };
+    });
+
+    setMessages([]);
+    setScreen("chat");
+  }
+
+  function openCharacter(id) {
+    setDB((old) => ({
+      ...old,
+      selectedCharacter: id,
+    }));
+
+    const saved = db.chats?.[id] || [];
+    setMessages(saved);
+    setScreen("chat");
+  }
+
+  function systemPrompt() {
+    return [
+      `캐릭터 이름: ${draft.name}`,
+      "",
+      "캐릭터 설정:",
+      draft.description || "(설정 없음)",
+      "",
+      "{user} 사용자 설정:",
+      draft.userNote || "(설정 없음)",
+      "",
+      "추가 규칙:",
+      draft.rules || "(추가 규칙 없음)",
+      "",
+      "이전 세션 요약:",
+      draft.summary || "(요약 없음)",
+    ].join("\n");
+  }
+
+  async function sendMessage() {
+    const text = input.trim();
+
+    if (!text || busy || !character) {
+      return;
+    }
+
+    if (!db.apiKey.trim()) {
+      setMessages((old) => [
+        ...old,
+        {
+          role: "system",
+          content: "OpenRouter API 키를 설정해주세요.",
+        },
+      ]);
+      return;
+    }
+
+    const userMessage = {
+      role: "user",
+      content: text,
+    };
+
+    const nextMessages = [...messages, userMessage];
+
+    setMessages(nextMessages);
+    setInput("");
+    setBusy(true);
+
+    try {
+      const response = await fetch(
+        "https://openrouter.ai/api/v1/chat/completions",
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${db.apiKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model: "openrouter/free",
+            messages: [
+              {
+                role: "system",
+                content: systemPrompt(),
+              },
+              ...nextMessages.slice(-20),
+            ],
+            temperature: Number(draft.temperature) || 0.8,
+            max_tokens: Number(draft.maxTokens) || 700,
+            ...(Number(draft.reasoning) > 0
+              ? {
+                  reasoning: {
+                    max_tokens: Number(draft.reasoning),
+                  },
+                }
+              : {}),
+          }),
+        }
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          data?.error?.message || `API 오류: ${response.status}`
+        );
+      }
+
+      const answer =
+        data?.choices?.[0]?.message?.content || "응답이 없습니다.";
+
+      const completed = [
+        ...nextMessages,
+        {
+          role: "assistant",
+          content: answer,
+        },
+      ];
+
+      setMessages(completed);
+
+      setDB((old) => ({
+        ...old,
+        chats: {
+          ...(old.chats || {}),
+          [character.id]: completed,
+        },
+      }));
+
+      const userTurns = completed.filter(
+        (item) => item.role === "user"
+      ).length;
+
+      const interval = Number(draft.summaryInterval) || 10;
+
+      if (userTurns > 0 && userTurns % interval === 0) {
+        await makeSummary(completed);
+      }
+    } catch (error) {
+      setMessages((old) => [
+        ...old,
+        {
+          role: "system",
+          content: `오류: ${error.message}`,
+        },
+      ]);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function makeSummary(history) {
+    if (!db.apiKey.trim() || !character) return;
+
+    try {
+      const response = await fetch(
+        "https://openrouter.ai/api/v1/chat/completions",
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${db.apiKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model: "openrouter/free",
+            messages: [
+              {
+                role: "system",
+                content:
+                  "대화의 연속성을 위해 기억해야 할 핵심 사실과 진행 상황만 짧게 요약하세요.",
+              },
+              {
+                role: "user",
+                content: history
+                  .slice(-20)
+                  .map((item) => `${item.role}: ${item.content}`)
+                  .join("\n"),
+              },
+            ],
+            max_tokens: 350,
+            temperature: 0.2,
+          }),
+        }
+      );
+
+      const data = await response.json();
+      const summary = data?.choices?.[0]?.message?.content;
+
+      if (!summary) return;
+
+      setDB((old) => ({
+        ...old,
+        characters: old.characters.map((item) =>
+          item.id === character.id
+            ? {
+                ...item,
+                summary,
+              }
+            : item
+        ),
+      }));
+
+      setDraft((old) => ({
+        ...old,
+        summary,
+      }));
+    } catch {
+      // 요약 실패가 채팅 자체를 중단시키지 않음
+    }
+  }
+
+  return (
+    <div className="app">
+      <header className="topbar">
+        <button onClick={() => setMenuOpen(true)}>☰</button>
+        <strong>VELA</strong>
+        <button onClick={() => setScreen("home")}>⌂</button>
+      </header>
+
+      {screen === "home" && (
+        <Home
+          characters={db.characters}
+          onCreate={createCharacter}
+          onOpen={openCharacter}
+        />
+      )}
+
+      {screen === "chat" && character && (
+        <Chat
+          character={character}
+          messages={messages}
+          input={input}
+          setInput={setInput}
+          busy={busy}
+          send={sendMessage}
+        />
+      )}
+
+      {screen === "create" && (
+        <CharacterEditor
+          draft={draft}
+          setDraft={setDraft}
+          save={saveCharacter}
+          back={() => setScreen(character ? "chat" : "home")}
+        />
+      )}
+
+      {menuOpen && (
+        <Drawer
+          db={db}
+          setDB={setDB}
+          close={() => setMenuOpen(false)}
+          create={createCharacter}
+          edit={editCharacter}
+          settings={() => setSettingsOpen(true)}
+        />
+      )}
+
+      {settingsOpen && (
+        <Settings
+          draft={draft}
+          setDraft={setDraft}
+          close={() => setSettingsOpen(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+function Home({ characters, onCreate, onOpen }) {
+  return (
+    <main className="home">
+      <div className="hero">
+        <small>VELA CHAT</small>
+        <h1>
+          대화할 캐릭터를
+          <br />
+          선택하세요.
+        </h1>
+      </div>
+
+      <button className="primary" onClick={onCreate}>
+        + 캐릭터 만들기
+      </button>
+
+      <section>
+        <div className="section-title">내 캐릭터</div>
+
+        {characters.length === 0 ? (
+          <div className="empty">아직 만든 캐릭터가 없습니다.</div>
+        ) : (
+          <div className="cards">
+            {characters.map((item) => (
+              <button
+                className="character-card"
+                key={item.id}
+                onClick={() => onOpen(item.id)}
+              >
+                <strong>{item.name}</strong>
+                <small>
+                  {item.description || "설정이 없습니다."}
+                </small>
+              </button>
+            ))}
+          </div>
+        )}
+      </section>
+    </main>
+  );
+}
+
+function Chat({
+  character,
+  messages,
+  input,
+  setInput,
+  busy,
+  send,
+}) {
+  return (
+    <main className="chat">
+      <div className="chat-header">
+        <strong>{character.name}</strong>
+        <small>{character.description}</small>
+      </div>
+
+      <div className="messages">
+        {messages.length === 0 && (
+          <div className="welcome">
+            <b>접속 시작</b>
+            <small>대화를 입력해보세요.</small>
+          </div>
+        )}
+
+        {messages.map((message, index) => (
+          <div
+            key={`${message.role}-${index}`}
+            className={`message ${message.role}`}
+          >
+            {message.content}
+          </div>
+        ))}
+
+        {busy && (
+          <div className="message assistant">
+            생각하는 중…
+          </div>
+        )}
+      </div>
+
+      <div className="composer">
+        <input
+          value={input}
+          onChange={(event) => setInput(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              send();
+            }
+          }}
+          placeholder="메시지 보내기"
+        />
+
+        <button disabled={busy} onClick={send}>
+          ↑
+        </button>
+      </div>
+    </main>
+  );
+}
+
+function CharacterEditor({ draft, setDraft, save, back }) {
+  function update(key, value) {
+    setDraft((old) => ({
+      ...old,
+      [key]: value,
+    }));
+  }
+
+  return (
+    <main className="page">
+      <div className="page-header">
+        <button onClick={back}>‹</button>
+        <strong>캐릭터 제작</strong>
+      </div>
+
+      <label>
+        이름
+        <input
+          value={draft.name}
+          onChange={(e) => update("name", e.target.value)}
+        />
+      </label>
+
+      <label>
+        캐릭터 설정
+        <textarea
+          value={draft.description}
+          onChange={(e) => update("description", e.target.value)}
+        />
+      </label>
+
+      <label>
+        유저노트
+        <textarea
+          value={draft.userNote}
+          onChange={(e) => update("userNote", e.target.value)}
+        />
+        <small>
+          {"{user}"}의 설정과 AI에게 전달할 정보를 입력합니다.
+        </small>
+      </label>
+
+      <label>
+        추가 규칙
+        <textarea
+          value={draft.rules}
+          onChange={(e) => update("rules", e.target.value)}
+        />
+      </label>
+
+      <button className="primary" onClick={save}>
+        저장하고 시작
+      </button>
+    </main>
+  );
+}
+
+function Settings({ draft, setDraft, close }) {
+  function update(key, value) {
+    setDraft((old) => ({
+      ...old,
+      [key]: value,
+    }));
+  }
+
+  return (
+    <div className="overlay">
+      <div className="modal">
+        <div className="modal-header">
+          <strong>채팅 설정</strong>
+          <button onClick={close}>×</button>
+        </div>
+
+        <label>
+          출력 토큰
+          <input
+            type="number"
+            value={draft.maxTokens}
+            onChange={(e) => update("maxTokens", e.target.value)}
+          />
+        </label>
+
+        <label>
+          추론량
+          <input
+            type="number"
+            value={draft.reasoning}
+            onChange={(e) => update("reasoning", e.target.value)}
+          />
+        </label>
+
+        <label>
+          요약 메모리
+          <select
+            value={draft.summaryInterval}
+            onChange={(e) =>
+              update("summaryInterval", e.target.value)
+            }
+          >
+            <option value="10">10턴</option>
+            <option value="15">15턴</option>
+            <option value="20">20턴</option>
+          </select>
+        </label>
+
+        <label>
+          온도
+          <input
+            type="number"
+            step="0.1"
+            value={draft.temperature}
+            onChange={(e) => update("temperature", e.target.value)}
+          />
+        </label>
+
+        {draft.summary && (
+          <div className="summary">
+            <b>최근 요약</b>
+            <p>{draft.summary}</p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function Drawer({
+  db,
+  setDB,
+  close,
+  create,
+  edit,
+  settings,
+}) {
+  return (
+    <div className="overlay">
+      <aside className="drawer">
+        <button onClick={close}>×</button>
+
+        <h2>VELA</h2>
+
+        <button onClick={create}>+ 캐릭터 제작</button>
+
+        <button onClick={edit}>캐릭터 설정</button>
+
+        <button onClick={settings}>채팅 설정</button>
+
+        <label>
+          OpenRouter API Key
+          <input
+            type="password"
+            value={db.apiKey}
+            onChange={(e) =>
+              setDB((old) => ({
+                ...old,
+                apiKey: e.target.value,
+              }))
+            }
+          />
+        </label>
+
+        <small>
+          OpenRouter 무료 모델도 API 키가 필요합니다.
+        </small>
+      </aside>
+    </div>
+  );
+}
+
+createRoot(document.getElementById("root")).render(<App />);
