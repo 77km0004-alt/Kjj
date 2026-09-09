@@ -1,0 +1,9 @@
+{
+  "appId": "com.vela.chat",
+  "appName": "Vela Chat",
+  "webDir": "dist",
+  "bundledWebRuntime": false,
+  "server": {
+    "androidScheme": "https"
+  }
+}
